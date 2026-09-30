@@ -1,0 +1,10 @@
+{
+  "name": "Ishara - Indian Sign Language (ISL) Translator",
+  "description": "Real-time Indian Sign Language (ISL) mobile translator using computer vision hand landmark tracking to recognize letters, words, and gestures.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
