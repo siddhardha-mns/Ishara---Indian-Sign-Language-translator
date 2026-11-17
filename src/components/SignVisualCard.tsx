@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Sparkles, Hand, Eye, Info } from 'lucide-react';
 import { ISLGestureDefinition } from '../types/isl';
+import includeSignFrames from '../data/includeSignFrames.json';
+import { getSignImageOverrides } from '../services/signImageOverrides';
 
 interface SignVisualCardProps {
   sign: ISLGestureDefinition;
@@ -14,14 +16,21 @@ export const SignVisualCard: React.FC<SignVisualCardProps> = ({
   showDetails = true,
 }) => {
   const [imageError, setImageError] = useState(false);
+  const localImage = getSignImageOverrides()[sign.name];
+  const normalizedName = sign.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const includeFrame = Object.entries(includeSignFrames).find(([name]) => {
+    const normalizedLabel = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    return normalizedName === normalizedLabel || normalizedName.includes(normalizedLabel);
+  })?.[1];
+  const imagePath = localImage || includeFrame || sign.imagePath;
 
   // If a high-res studio image exists and hasn't errored
-  if (sign.imagePath && !imageError) {
+  if (imagePath && !imageError) {
     return (
       <div className="relative rounded-xl overflow-hidden border border-[#31333f] bg-[#0e1117] group">
         <div className="aspect-[4/3] w-full relative">
           <img
-            src={sign.imagePath}
+            src={imagePath}
             alt={`Indian Sign Language for ${sign.name}`}
             referrerPolicy="no-referrer"
             onError={() => setImageError(true)}

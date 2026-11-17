@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
-import { Search, Sparkles } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Camera, Search, Sparkles, X } from 'lucide-react';
+import { mediaPipeService } from '../services/mediaPipeService';
 import { ISL_GESTURES } from '../data/islDictionary';
+import includeSignFrames from '../data/includeSignFrames.json';
+import { getSignImageAnnotations, getSignImageOverrides, saveSignImageOverrideRemote, SignImageAnnotation, SignImageOverrides, syncSignImageOverrides } from '../services/signImageOverrides';
 import { ISLGestureDefinition } from '../types/isl';
 import { SignVisualCard } from './SignVisualCard';
 
@@ -10,8 +13,92 @@ interface SignDictionaryProps {
 
 export const SignDictionary: React.FC<SignDictionaryProps> = ({ onSelectForCamera }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [selectedGesture, setSelectedGesture] = useState<ISLGestureDefinition | null>(ISL_GESTURES[0]);
+  const [imageOverrides, setImageOverrides] = useState<SignImageOverrides>(() => getSignImageOverrides());
+  const [imageAnnotations, setImageAnnotations] = useState(() => getSignImageAnnotations());
+  const [captureTarget, setCaptureTarget] = useState<string | null>(null);
+  const [captureError, setCaptureError] = useState<string | null>(null);
+  const captureVideoRef = useRef<HTMLVideoElement>(null);
+  const captureStreamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    syncSignImageOverrides().then((overrides) => {
+      setImageOverrides(overrides);
+      setImageAnnotations(getSignImageAnnotations());
+    }).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    if (!captureTarget) return;
+    let active = true;
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false })
+      .then((stream) => {
+        if (!active) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        captureStreamRef.current = stream;
+        if (captureVideoRef.current) {
+          captureVideoRef.current.srcObject = stream;
+          return captureVideoRef.current.play();
+        }
+      })
+      .catch(() => setCaptureError('Camera access is required to capture a replacement sign image.'));
+    return () => {
+      active = false;
+      captureStreamRef.current?.getTracks().forEach((track) => track.stop());
+      captureStreamRef.current = null;
+    };
+  }, [captureTarget]);
+
+  const closeCapture = () => {
+    captureStreamRef.current?.getTracks().forEach((track) => track.stop());
+    captureStreamRef.current = null;
+    setCaptureTarget(null);
+    setCaptureError(null);
+  };
+
+  const captureReplacement = async () => {
+    const video = captureVideoRef.current;
+    if (!video || video.readyState < 2 || !video.videoWidth) {
+      setCaptureError('The camera is still starting. Try again in a moment.');
+      return;
+    }
+    const width = Math.min(video.videoWidth, 640);
+    const height = Math.round(width * video.videoHeight / video.videoWidth);
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext('2d')?.drawImage(video, 0, 0, width, height);
+    try {
+      await mediaPipeService.initialize();
+      const result = mediaPipeService.detectVideo(video, performance.now());
+      if (!result?.landmarks?.length) {
+        setCaptureError('No usable hand was detected. Keep the complete hand inside the frame and try again.');
+        return;
+      }
+      const annotation: SignImageAnnotation = {
+        version: 1,
+        width,
+        height,
+        capturedAt: new Date().toISOString(),
+        hands: result.landmarks.map((landmarks, index) => ({
+          handedness: result.handednesses?.[index]?.[0]?.categoryName,
+          score: result.handednesses?.[index]?.[0]?.score,
+          landmarks: landmarks.map(({ x, y, z }) => ({ x, y, z })),
+        })),
+      };
+      setCaptureError('Saving annotated sign…');
+      const overrides = await saveSignImageOverrideRemote(captureTarget!, canvas.toDataURL('image/jpeg', 0.84), annotation);
+      setImageOverrides(overrides);
+      setImageAnnotations(getSignImageAnnotations());
+      closeCapture();
+    } catch {
+      setCaptureError('MediaPipe could not annotate this image. Keep the hand visible and try again.');
+    }
+  };
 
   const categories = [
     { id: 'all', label: 'All Signs' },
@@ -30,20 +117,34 @@ export const SignDictionary: React.FC<SignDictionaryProps> = ({ onSelectForCamer
       g.description.toLowerCase().includes(searchTerm.toLowerCase());
     return matchesCategory && matchesSearch;
   });
+  const includeFiltered = Object.entries(includeSignFrames).filter(([name]) =>
+    name.toLowerCase().includes(searchTerm.toLowerCase()),
+  );
 
   return (
     <div className="w-full space-y-4">
       {/* Search Input */}
-      <div className="relative w-full">
+      <form
+        className="flex w-full gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setSearchTerm(searchInput.trim());
+        }}
+      >
+        <div className="relative min-w-0 flex-1">
         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#808495]" />
         <input
           type="text"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
           placeholder="Search ISL signs (e.g. Namaste, Water, Food, A-Z)..."
           className="w-full h-10 pl-10 pr-4 bg-[#0e1117] border border-[#31333f] rounded-md text-xs text-[#fafafa] placeholder-[#808495] focus:outline-none focus:border-[#FF4B4B] transition-colors"
         />
-      </div>
+        </div>
+        <button type="submit" className="h-10 shrink-0 rounded-md bg-[#FF4B4B] px-4 text-xs font-semibold text-white hover:bg-[#ff3333]">
+          Search
+        </button>
+      </form>
 
       {/* Category Pills */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
@@ -144,6 +245,59 @@ export const SignDictionary: React.FC<SignDictionaryProps> = ({ onSelectForCamer
           </div>
         )}
       </div>
+
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-[#fafafa]">INCLUDE 263-sign reference gallery</h2>
+            <p className="text-[11px] text-[#808495]">Representative frames from the pretrained Indian Sign Language dataset.</p>
+          </div>
+          <span className="text-[11px] text-[#808495]">{includeFiltered.length} signs</span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 max-h-[620px] overflow-y-auto pr-1">
+          {includeFiltered.map(([name, imagePath]) => (
+            <figure key={name} className="overflow-hidden rounded-lg border border-[#31333f] bg-[#0e1117]">
+              <img src={imageOverrides[name] || imagePath} alt={`INCLUDE sign: ${name}`} loading="lazy" className="aspect-[4/3] w-full object-cover" />
+              <figcaption className="flex items-center justify-between gap-1 px-2 py-2">
+                <span className="min-w-0 truncate text-[11px] font-medium text-[#fafafa]">{name}</span>
+                {imageAnnotations[name] && <span className="shrink-0 text-[9px] text-emerald-300">MP ✓</span>}
+                <button
+                  type="button"
+                  onClick={() => { setCaptureError(null); setCaptureTarget(name); }}
+                  title={`Capture a replacement image for ${name}`}
+                  className="shrink-0 rounded p-1 text-[#808495] hover:bg-[#31333f] hover:text-white"
+                >
+                  <Camera className="h-3.5 w-3.5" />
+                </button>
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+      </section>
+
+      {captureTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" role="dialog" aria-modal="true" aria-label={`Capture image for ${captureTarget}`}>
+          <div className="w-full max-w-lg space-y-4 rounded-2xl border border-[#31333f] bg-[#1e232e] p-4 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-white">Capture replacement image</h3>
+                <p className="text-xs text-[#808495]">Target sign: {captureTarget}</p>
+              </div>
+              <button type="button" onClick={closeCapture} className="rounded-full p-2 text-[#808495] hover:bg-[#31333f] hover:text-white" aria-label="Close capture dialog">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <video ref={captureVideoRef} autoPlay playsInline muted className="aspect-[4/3] w-full rounded-xl bg-black object-cover" />
+            {captureError && <p className="text-xs text-red-300">{captureError}</p>}
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={closeCapture} className="rounded-lg border border-[#31333f] px-3 py-2 text-xs text-[#808495] hover:text-white">Cancel</button>
+              <button type="button" onClick={captureReplacement} className="flex items-center gap-2 rounded-lg bg-[#FF4B4B] px-3 py-2 text-xs font-semibold text-white hover:bg-[#ff3333]">
+                <Camera className="h-3.5 w-3.5" /> Capture and replace
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
