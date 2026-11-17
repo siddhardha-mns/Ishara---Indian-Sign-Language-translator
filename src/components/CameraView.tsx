@@ -3,6 +3,8 @@ import { Camera, RefreshCw, Eye, EyeOff, AlertCircle, Play, Pause, Layers } from
 import { mediaPipeService, drawHandLandmarks } from '../services/mediaPipeService';
 import { classifyISLGesture } from '../services/islClassifier';
 import { generateSyntheticLandmarks } from '../services/simulatorService';
+import { buildIncludeFrame, checkIncludeHealth, orderIncludeHands, predictWithInclude, IncludePrediction } from '../services/includeService';
+import { GESTURE_BY_ID } from '../data/islDictionary';
 import { AppSettings, HandLandmarks, RecognitionResult } from '../types/isl';
 
 interface CameraViewProps {
@@ -32,6 +34,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const [activeFacingMode, setActiveFacingMode] = useState<'user' | 'environment'>(settings.preferredCamera);
   const [fps, setFps] = useState<number>(0);
   const [stabilityProgress, setStabilityProgress] = useState<number>(0); // 0 to 1
+  const [includeStatus, setIncludeStatus] = useState<'checking' | 'ready' | 'offline'>('checking');
+  const includeSequenceRef = useRef<number[][]>([]);
+  const includePredictionRef = useRef<IncludePrediction | null>(null);
+  const includeRequestInFlightRef = useRef(false);
+  const includeFramesSinceRequestRef = useRef(0);
 
   // Gesture stability tracking
   const currentGestureIdRef = useRef<string | null>(null);
@@ -41,6 +48,22 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const streamRef = useRef<MediaStream | null>(null);
   const fpsCountRef = useRef<number>(0);
   const fpsTimeRef = useRef<number>(Date.now());
+
+  const includeToRecognition = useCallback((prediction: IncludePrediction, handsCount: number): RecognitionResult => {
+    const gestureId = prediction.label.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const definition = GESTURE_BY_ID.get(gestureId);
+    const name = definition?.name || prediction.label.replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+    return {
+      gestureId,
+      name,
+      hindiName: definition?.hindiName || '—',
+      confidence: prediction.confidence,
+      rawConfidence: prediction.confidence,
+      handsCount,
+      timestamp: Date.now(),
+      source: 'include',
+    };
+  }, []);
 
   // Stop camera stream safely
   const stopCameraStream = useCallback(() => {
@@ -54,11 +77,13 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const startCamera = useCallback(async () => {
     setCameraState('loading');
     setErrorMessage(null);
+    setIncludeStatus('checking');
+    checkIncludeHealth().then((available) => setIncludeStatus(available ? 'ready' : 'offline'));
     stopCameraStream();
 
     try {
       // 1. Initialize MediaPipe HandLandmarker in parallel
-      await mediaPipeService.initialize();
+      await Promise.all([mediaPipeService.initialize(), mediaPipeService.initializePose()]);
 
       // 2. Request user media with preferred facing mode
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -141,8 +166,25 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
           // Run MediaPipe detection
           const result = mediaPipeService.detectVideo(video, now);
-          if (result && result.landmarks && result.landmarks.length > 0) {
+          const pose = mediaPipeService.detectPose(video, now);
+          if (result?.landmarks) {
             detectedHands = result.landmarks;
+            const poseLandmarks = pose?.landmarks?.[0];
+            includeSequenceRef.current.push(buildIncludeFrame(poseLandmarks, orderIncludeHands(poseLandmarks, detectedHands)));
+            includeSequenceRef.current = includeSequenceRef.current.slice(-169);
+            includeFramesSinceRequestRef.current += 1;
+            if (includeSequenceRef.current.length >= 32 && includeFramesSinceRequestRef.current >= 8 && !includeRequestInFlightRef.current) {
+              includeRequestInFlightRef.current = true;
+              includeFramesSinceRequestRef.current = 0;
+              predictWithInclude(includeSequenceRef.current)
+                .then((prediction) => {
+                  includePredictionRef.current = prediction;
+                  setIncludeStatus(prediction ? 'ready' : 'offline');
+                })
+                .finally(() => { includeRequestInFlightRef.current = false; });
+            }
+          }
+          if (detectedHands.length > 0) {
             drawHandLandmarks(ctx, detectedHands, canvas.width, canvas.height, {
               showSkeleton: settings.showSkeleton,
               showLandmarks: settings.showLandmarks,
@@ -171,12 +213,22 @@ export const CameraView: React.FC<CameraViewProps> = ({
       // Classify detected or simulated hands
       if (detectedHands.length > 0) {
         const recognition = classifyISLGesture(detectedHands);
+        if (recognition) recognition.source = 'heuristic';
 
-        if (recognition && recognition.confidence >= settings.minConfidence) {
-          onGestureDetected(recognition);
+        const includeRecognition = includePredictionRef.current
+          ? includeToRecognition(includePredictionRef.current, detectedHands.length)
+          : null;
+        const selectedRecognition = isSimulating
+          ? recognition
+          : includeRecognition && includeRecognition.confidence >= settings.minConfidence
+            ? includeRecognition
+            : recognition;
+
+        if (selectedRecognition && selectedRecognition.confidence >= settings.minConfidence) {
+          onGestureDetected(selectedRecognition);
 
           // Stability tracking for auto-commit
-          if (currentGestureIdRef.current === recognition.gestureId) {
+          if (currentGestureIdRef.current === selectedRecognition.gestureId) {
             const elapsed = now - gestureStartTimeRef.current;
             const progress = Math.min(1, elapsed / settings.holdDurationMs);
             setStabilityProgress(progress);
@@ -184,14 +236,18 @@ export const CameraView: React.FC<CameraViewProps> = ({
             if (
               settings.autoCommit &&
               progress >= 1 &&
-              committedGestureIdRef.current !== recognition.gestureId
+              committedGestureIdRef.current !== selectedRecognition.gestureId
             ) {
-              committedGestureIdRef.current = recognition.gestureId;
-              onGestureCommitted(recognition);
+              committedGestureIdRef.current = selectedRecognition.gestureId;
+              onGestureCommitted(selectedRecognition);
+              // Start the next sign with a clean temporal window.
+              includePredictionRef.current = null;
+              includeSequenceRef.current = [];
+              includeFramesSinceRequestRef.current = 0;
             }
           } else {
             // New gesture detected
-            currentGestureIdRef.current = recognition.gestureId;
+            currentGestureIdRef.current = selectedRecognition.gestureId;
             gestureStartTimeRef.current = now;
             committedGestureIdRef.current = null;
             setStabilityProgress(0);
@@ -202,6 +258,9 @@ export const CameraView: React.FC<CameraViewProps> = ({
           setStabilityProgress(0);
         }
       } else {
+        includePredictionRef.current = null;
+        includeSequenceRef.current = [];
+        includeFramesSinceRequestRef.current = 0;
         onGestureDetected(null);
         currentGestureIdRef.current = null;
         setStabilityProgress(0);
@@ -229,6 +288,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
     settings,
     onGestureDetected,
     onGestureCommitted,
+    includeToRecognition,
   ]);
 
   return (
@@ -272,6 +332,14 @@ export const CameraView: React.FC<CameraViewProps> = ({
           <span>{isSimulating ? 'Simulation' : 'Camera'}</span>
           <span className="text-slate-500">·</span>
           <span className="font-mono text-[11px] text-slate-400">{fps} FPS</span>
+          {!isSimulating && (
+            <>
+              <span className="text-slate-500">·</span>
+              <span className={includeStatus === 'ready' ? 'text-emerald-400' : 'text-amber-400'}>
+                INCLUDE {includeStatus === 'checking' ? '…' : includeStatus}
+              </span>
+            </>
+          )}
         </div>
 
         {/* Action icons */}

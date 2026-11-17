@@ -63,7 +63,9 @@ export default function App() {
     speechService.playCommitSound();
 
     if (settings.speechEnabled) {
-      const speechText = settings.speechLanguage === 'hi-IN' ? result.hindiName : word;
+      const speechText = settings.speechLanguage === 'hi-IN' && result.hindiName !== '—'
+        ? result.hindiName
+        : word;
       speechService.speak(speechText, settings.speechLanguage);
     }
   }, [settings.speechEnabled, settings.speechLanguage]);
@@ -141,7 +143,7 @@ export default function App() {
               <span>Indian Sign Language (ISL) Translator</span>
             </h1>
             <p className="text-xs sm:text-sm text-[#808495]">
-              Real-time computer vision powered by MediaPipe Hands, OpenCV heuristics, and Streamlit
+              Real-time ISL recognition powered by MediaPipe landmarks and the AI4Bharat INCLUDE Transformer
             </p>
           </div>
 
@@ -213,7 +215,7 @@ export default function App() {
                     <StreamlitMetric
                       label="DETECTED SIGN"
                       value={currentDetection ? currentDetection.name.split('/')[0].trim() : 'Waiting...'}
-                      delta={currentDetection ? `${Math.round(currentDetection.confidence * 100)}% Conf` : undefined}
+                      delta={currentDetection ? `${Math.round(currentDetection.confidence * 100)}% · ${currentDetection.source === 'include' ? 'INCLUDE Transformer' : currentDetection.source === 'heuristic' ? 'MediaPipe' : 'Simulation'}` : undefined}
                     />
                     <StreamlitMetric
                       label="HINDI"

@@ -1,4 +1,4 @@
-import { FilesetResolver, HandLandmarker, HandLandmarkerResult } from '@mediapipe/tasks-vision';
+import { FilesetResolver, HandLandmarker, HandLandmarkerResult, PoseLandmarker, PoseLandmarkerResult } from '@mediapipe/tasks-vision';
 import { HandLandmarks } from '../types/isl';
 
 // MediaPipe Hand connections (21 landmarks)
@@ -19,6 +19,7 @@ export const HAND_CONNECTIONS = [
 
 export class MediaPipeService {
   private handLandmarker: HandLandmarker | null = null;
+  private poseLandmarker: PoseLandmarker | null = null;
   private isInitializing: boolean = false;
   private initError: string | null = null;
 
@@ -93,10 +94,45 @@ export class MediaPipeService {
     }
   }
 
+  public async initializePose(): Promise<PoseLandmarker> {
+    if (this.poseLandmarker) return this.poseLandmarker;
+    const vision = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm'
+    );
+    const options = (delegate: 'GPU' | 'CPU') => ({
+      baseOptions: {
+        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+        delegate,
+      },
+      runningMode: 'VIDEO' as const,
+      numPoses: 1,
+    });
+    try {
+      this.poseLandmarker = await PoseLandmarker.createFromOptions(vision, options('GPU'));
+    } catch (gpuError) {
+      console.warn('MediaPipe pose GPU initialization failed, falling back to CPU:', gpuError);
+      this.poseLandmarker = await PoseLandmarker.createFromOptions(vision, options('CPU'));
+    }
+    return this.poseLandmarker;
+  }
+
+  public detectPose(video: HTMLVideoElement, timestamp: number): PoseLandmarkerResult | null {
+    if (!this.poseLandmarker) return null;
+    try {
+      return this.poseLandmarker.detectForVideo(video, timestamp);
+    } catch {
+      return null;
+    }
+  }
+
   public dispose() {
     if (this.handLandmarker) {
       this.handLandmarker.close();
       this.handLandmarker = null;
+    }
+    if (this.poseLandmarker) {
+      this.poseLandmarker.close();
+      this.poseLandmarker = null;
     }
   }
 }

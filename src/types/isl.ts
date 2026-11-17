@@ -34,6 +34,7 @@ export interface RecognitionResult {
   handsCount: number;
   rawConfidence: number;
   timestamp: number;
+  source?: 'include' | 'heuristic';
 }
 
 export interface AppSettings {
