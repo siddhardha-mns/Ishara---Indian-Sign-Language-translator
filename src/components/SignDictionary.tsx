@@ -6,6 +6,7 @@ import includeSignFrames from '../data/includeSignFrames.json';
 import { getSignImageAnnotations, getSignImageOverrides, saveSignImageOverrideRemote, SignImageAnnotation, SignImageOverrides, syncSignImageOverrides } from '../services/signImageOverrides';
 import { ISLGestureDefinition } from '../types/isl';
 import { SignVisualCard } from './SignVisualCard';
+import { saveLiveSignTemplate } from '../services/liveSignTemplates';
 
 interface SignDictionaryProps {
   onSelectForCamera: (gestureId: string) => void;
@@ -90,6 +91,10 @@ export const SignDictionary: React.FC<SignDictionaryProps> = ({ onSelectForCamer
           landmarks: landmarks.map(({ x, y, z }) => ({ x, y, z })),
         })),
       };
+      const templateGesture = ISL_GESTURES.find((gesture) => gesture.name === captureTarget);
+      const templateId = templateGesture?.id || captureTarget!.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+      const templateName = templateGesture?.name.split('/')[0].trim() || captureTarget!;
+      saveLiveSignTemplate(templateId, templateName, templateGesture?.hindiName || '—', annotation.hands[0].landmarks);
       setCaptureError('Saving annotated sign…');
       const overrides = await saveSignImageOverrideRemote(captureTarget!, canvas.toDataURL('image/jpeg', 0.84), annotation);
       setImageOverrides(overrides);
@@ -141,8 +146,9 @@ export const SignDictionary: React.FC<SignDictionaryProps> = ({ onSelectForCamer
           className="w-full h-10 pl-10 pr-4 bg-[#0e1117] border border-[#31333f] rounded-md text-xs text-[#fafafa] placeholder-[#808495] focus:outline-none focus:border-[#FF4B4B] transition-colors"
         />
         </div>
-        <button type="submit" className="h-10 shrink-0 rounded-md bg-[#FF4B4B] px-4 text-xs font-semibold text-white hover:bg-[#ff3333]">
-          Search
+        <button type="submit" aria-label="Search catalogue" className="flex h-10 shrink-0 items-center gap-1.5 rounded-md bg-[#FF4B4B] px-4 text-xs font-semibold text-white hover:bg-[#ff3333]">
+          <Search className="h-3.5 w-3.5" />
+          Search catalogue
         </button>
       </form>
 
@@ -235,13 +241,22 @@ export const SignDictionary: React.FC<SignDictionaryProps> = ({ onSelectForCamer
               </ul>
             </div>
 
-            <button
-              onClick={() => onSelectForCamera(selectedGesture.id)}
-              className="w-full h-10 rounded-md bg-[#FF4B4B] hover:bg-[#ff3333] text-white font-semibold text-xs flex items-center justify-center gap-2 active:scale-[0.99] transition-all shadow-sm"
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>Practice This Sign in Camera</span>
-            </button>
+            <div className="space-y-2">
+              <button
+                onClick={() => { setCaptureError(null); setCaptureTarget(selectedGesture.name); }}
+                className="w-full h-10 rounded-md border border-[#31333f] bg-[#0e1117] hover:border-[#FF4B4B] text-[#fafafa] font-semibold text-xs flex items-center justify-center gap-2 transition-all"
+              >
+                <Camera className="w-4 h-4" />
+                <span>Capture image for this sign</span>
+              </button>
+              <button
+                onClick={() => onSelectForCamera(selectedGesture.id)}
+                className="w-full h-10 rounded-md bg-[#FF4B4B] hover:bg-[#ff3333] text-white font-semibold text-xs flex items-center justify-center gap-2 active:scale-[0.99] transition-all shadow-sm"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>Try “{selectedGesture.name.split('/')[0].trim()}” with Live Camera</span>
+              </button>
+            </div>
           </div>
         )}
       </div>

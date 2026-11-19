@@ -17,9 +17,13 @@ import { SignDictionary } from './components/SignDictionary';
 import { speechService } from './services/speechService';
 import { getStreamlitAppScript } from './services/streamlitScriptGenerator';
 import { AppSettings, RecognitionResult } from './types/isl';
+import { DemoLanding } from './components/DemoLanding';
+import { DemoLogin } from './components/DemoLogin';
 import { Camera, Sparkles, BookOpen, Terminal, Plus, Volume2, Info, Download, Copy, Check } from 'lucide-react';
 
 export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authView, setAuthView] = useState<'home' | 'login'>('home');
   const [activeTab, setActiveTab] = useState<'translate' | 'practice' | 'dictionary' | 'python'>('translate');
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
   const [isMobileFrame, setIsMobileFrame] = useState<boolean>(false);
@@ -72,6 +76,7 @@ export default function App() {
 
   const handleSelectSignForCamera = (gestureId: string) => {
     setSimulationGestureId(gestureId);
+    setIsSimulating(false);
     setActiveTab('translate');
   };
 
@@ -91,6 +96,12 @@ export default function App() {
     setIsRunning(true);
     setTimeout(() => setIsRunning(false), 500);
   };
+
+  if (!isAuthenticated) {
+    return authView === 'home'
+      ? <DemoLanding onLogin={() => setAuthView('login')} />
+      : <DemoLogin onBack={() => setAuthView('home')} onSuccess={() => setIsAuthenticated(true)} />;
+  }
 
   const tabs = [
     { id: 'translate', label: '📷 Live Camera Translation' },

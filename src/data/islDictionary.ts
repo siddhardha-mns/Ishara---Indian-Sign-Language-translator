@@ -66,6 +66,20 @@ export const ISL_GESTURES: ISLGestureDefinition[] = [
     keyPointsGuide: 'All 5 fingertips close together in a pinched dome, positioned in upper frame'
   },
   {
+    id: 'need',
+    name: 'Need',
+    hindiName: 'ज़रूरत',
+    category: 'daily',
+    description: 'A request or statement that something is required. The live INCLUDE model can identify this temporal sign sequence.',
+    handsRequired: 'single',
+    tips: [
+      'Perform the standard ISL sign for Need clearly in front of the camera',
+      'Keep the complete hand visible while signing',
+      'Hold the sign steadily until the confidence indicator commits it'
+    ],
+    keyPointsGuide: 'Temporal hand landmark sequence classified by the INCLUDE Transformer'
+  },
+  {
     id: 'help',
     name: 'Help / Assist',
     hindiName: 'मदद',

@@ -59,9 +59,9 @@ class SpeechService {
   }
 
   /**
-   * Speaks text using Indian English or Hindi speech synthesis
+   * Speaks text using Indian English, Hindi, or Telugu speech synthesis
    */
-  public speak(text: string, lang: 'en-IN' | 'hi-IN' = 'en-IN') {
+  public speak(text: string, lang: 'en-IN' | 'hi-IN' | 'te-IN' = 'en-IN') {
     if (!this.synth || !text.trim()) return;
 
     try {
@@ -77,7 +77,8 @@ class SpeechService {
       const regionalVoice = voices.find(v =>
         v.lang === lang ||
         (lang === 'hi-IN' && (v.lang.startsWith('hi') || v.name.toLowerCase().includes('hindi'))) ||
-        (lang === 'en-IN' && (v.lang === 'en-IN' || v.name.toLowerCase().includes('india')))
+        (lang === 'en-IN' && (v.lang === 'en-IN' || v.name.toLowerCase().includes('india'))) ||
+        (lang === 'te-IN' && (v.lang.startsWith('te') || v.name.toLowerCase().includes('telugu')))
       );
 
       if (regionalVoice) {

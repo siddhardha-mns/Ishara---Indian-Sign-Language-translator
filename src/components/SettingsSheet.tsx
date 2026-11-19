@@ -103,7 +103,7 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
           {/* Speech voice language */}
           <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-2">
             <p className="text-xs font-semibold text-slate-200">Speech Language</p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 onClick={() => updateSetting('speechLanguage', 'en-IN')}
                 className={`py-2 px-3 rounded-lg text-xs font-medium border transition-colors ${
@@ -123,6 +123,16 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
                 }`}
               >
                 हिन्दी (Hindi)
+              </button>
+              <button
+                onClick={() => updateSetting('speechLanguage', 'te-IN')}
+                className={`py-2 px-3 rounded-lg text-xs font-medium border transition-colors ${
+                  settings.speechLanguage === 'te-IN'
+                    ? 'bg-amber-500/20 border-amber-500 text-amber-300 font-semibold'
+                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                తెలుగు (Telugu)
               </button>
             </div>
           </div>

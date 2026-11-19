@@ -42,7 +42,7 @@ export interface AppSettings {
   showSkeleton: boolean;
   showLandmarks: boolean;
   speechEnabled: boolean;
-  speechLanguage: 'en-IN' | 'hi-IN';
+  speechLanguage: 'en-IN' | 'hi-IN' | 'te-IN';
   holdDurationMs: number; // Duration to hold gesture to commit to sentence
   autoCommit: boolean;
   minConfidence: number;

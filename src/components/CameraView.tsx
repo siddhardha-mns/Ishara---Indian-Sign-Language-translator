@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Camera, RefreshCw, Eye, EyeOff, AlertCircle, Play, Pause, Layers } from 'lucide-react';
+import { Camera, RefreshCw, Eye, EyeOff, AlertCircle, Play, Pause, Layers, VideoOff } from 'lucide-react';
 import { mediaPipeService, drawHandLandmarks } from '../services/mediaPipeService';
 import { classifyISLGesture } from '../services/islClassifier';
 import { generateSyntheticLandmarks } from '../services/simulatorService';
 import { buildIncludeFrame, checkIncludeHealth, orderIncludeHands, predictWithInclude, IncludePrediction } from '../services/includeService';
 import { GESTURE_BY_ID } from '../data/islDictionary';
+import { matchLiveSignTemplate } from '../services/liveSignTemplates';
 import { AppSettings, HandLandmarks, RecognitionResult } from '../types/isl';
 
 interface CameraViewProps {
@@ -37,6 +38,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
   const [includeStatus, setIncludeStatus] = useState<'checking' | 'ready' | 'offline'>('checking');
   const includeSequenceRef = useRef<number[][]>([]);
   const includePredictionRef = useRef<IncludePrediction | null>(null);
+  const includePredictionUpdatedAtRef = useRef(0);
   const includeRequestInFlightRef = useRef(false);
   const includeFramesSinceRequestRef = useRef(0);
 
@@ -72,6 +74,21 @@ export const CameraView: React.FC<CameraViewProps> = ({
       streamRef.current = null;
     }
   }, []);
+
+  const stopCamera = useCallback(() => {
+    stopCameraStream();
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.srcObject = null;
+    }
+    includePredictionRef.current = null;
+    includeSequenceRef.current = [];
+    includeFramesSinceRequestRef.current = 0;
+    setIsPaused(false);
+    setStabilityProgress(0);
+    setCameraState('idle');
+    onGestureDetected(null);
+  }, [onGestureDetected, stopCameraStream]);
 
   // Start real camera
   const startCamera = useCallback(async () => {
@@ -178,7 +195,10 @@ export const CameraView: React.FC<CameraViewProps> = ({
               includeFramesSinceRequestRef.current = 0;
               predictWithInclude(includeSequenceRef.current)
                 .then((prediction) => {
-                  includePredictionRef.current = prediction;
+                  if (prediction && Date.now() - includePredictionUpdatedAtRef.current >= 2000) {
+                    includePredictionRef.current = prediction;
+                    includePredictionUpdatedAtRef.current = Date.now();
+                  }
                   setIncludeStatus(prediction ? 'ready' : 'offline');
                 })
                 .finally(() => { includeRequestInFlightRef.current = false; });
@@ -212,7 +232,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
       // Classify detected or simulated hands
       if (detectedHands.length > 0) {
-        const recognition = classifyISLGesture(detectedHands);
+        const recognition = matchLiveSignTemplate(detectedHands[0]) || classifyISLGesture(detectedHands);
         if (recognition) recognition.source = 'heuristic';
 
         const includeRecognition = includePredictionRef.current
@@ -242,6 +262,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
               onGestureCommitted(selectedRecognition);
               // Start the next sign with a clean temporal window.
               includePredictionRef.current = null;
+              includePredictionUpdatedAtRef.current = 0;
               includeSequenceRef.current = [];
               includeFramesSinceRequestRef.current = 0;
             }
@@ -259,6 +280,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
         }
       } else {
         includePredictionRef.current = null;
+        includePredictionUpdatedAtRef.current = 0;
         includeSequenceRef.current = [];
         includeFramesSinceRequestRef.current = 0;
         onGestureDetected(null);
@@ -292,7 +314,8 @@ export const CameraView: React.FC<CameraViewProps> = ({
   ]);
 
   return (
-    <div className="relative w-full rounded-2xl overflow-hidden bg-slate-900 border border-slate-800 shadow-xl aspect-[4/3] max-h-[58vh] flex items-center justify-center">
+    <div className="w-full space-y-2">
+      <div className="relative w-full rounded-2xl overflow-hidden bg-slate-900 border border-slate-800 shadow-xl aspect-[4/3] max-h-[58vh] flex items-center justify-center">
       {/* Video element */}
       <video
         ref={videoRef}
@@ -363,6 +386,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
               >
                 {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
               </button>
+
             </>
           )}
 
@@ -427,6 +451,28 @@ export const CameraView: React.FC<CameraViewProps> = ({
               Launch Simulation Mode
             </button>
           </div>
+        </div>
+      )}
+      </div>
+
+      {!isSimulating && (
+        <div className="flex items-center justify-end gap-2 rounded-xl border border-slate-800 bg-slate-950/70 p-2">
+          <button
+            onClick={startCamera}
+            disabled={cameraState === 'active' || cameraState === 'loading'}
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-emerald-500/40 px-3 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Camera className="h-4 w-4" />
+            Start camera
+          </button>
+          <button
+            onClick={stopCamera}
+            disabled={cameraState !== 'active' && cameraState !== 'loading'}
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-red-500/40 px-3 text-xs font-semibold text-red-300 transition hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <VideoOff className="h-4 w-4" />
+            Stop camera
+          </button>
         </div>
       )}
     </div>

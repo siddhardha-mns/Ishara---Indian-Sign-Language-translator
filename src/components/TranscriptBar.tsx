@@ -54,12 +54,13 @@ export const TranscriptBar: React.FC<TranscriptBarProps> = ({
   const quickPhrases = [
     { en: 'Namaste! How are you?', hi: 'नमस्ते! आप कैसे हैं?' },
     { en: 'Please help me', hi: 'कृपया मेरी मदद करें' },
+    { en: 'I need help', hi: 'मुझे मदद चाहिए' },
     { en: 'Thank you very much', hi: 'बहुत-बहुत धन्यवाद' },
     { en: 'I need water', hi: 'मुझे पानी चाहिए' },
   ];
 
   const handleInsertPhrase = (phrase: string) => {
-    setSentence((prev) => [...prev, phrase]);
+    setSentence((prev) => [...prev, ...phrase.split(/\s+/).filter(Boolean)]);
   };
 
   return (

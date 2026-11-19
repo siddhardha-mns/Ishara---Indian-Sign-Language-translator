@@ -237,6 +237,17 @@ export const StreamlitSidebar: React.FC<StreamlitSidebarProps> = ({
                 />
                 <span>हिन्दी (Hindi)</span>
               </label>
+
+              <label className="flex items-center gap-2 text-xs text-[#fafafa] cursor-pointer">
+                <input
+                  type="radio"
+                  name="voice"
+                  checked={settings.speechLanguage === 'te-IN'}
+                  onChange={() => updateSetting('speechLanguage', 'te-IN')}
+                  className="accent-[#FF4B4B]"
+                />
+                <span>తెలుగు (Telugu)</span>
+              </label>
             </div>
           </div>
 
